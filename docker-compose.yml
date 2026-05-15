@@ -80,6 +80,14 @@ services:
       # Logs dir READ-ONLY for the same reason. The beacon
       # parses the log but never writes to it.
       - ./data/enshrouded/logs:/logs:ro
+      # 0.44.3+: explicit bind-mount for the dedicated-server
+      # config file (`enshrouded_server.json`). The parent-walk
+      # auto-detect can't reach it because in the container the
+      # parent of `/save` is just `/`, not the host's
+      # `./data/enshrouded/`. With this file bind-mount plus
+      # ESB_SERVER_CONFIG_PATH below, the beacon's routine
+      # telemetry + diagnostic bundles both pick it up.
+      - ./data/enshrouded/enshrouded_server.json:/config/enshrouded_server.json:ro
       # Small writable volume for the beacon's saved-position
       # sidecar (so docker restart doesn't re-process the whole
       # log). 0.43.1+ uses the ESB_LOG_POS_PATH env to put this
@@ -89,6 +97,8 @@ services:
       - ESB_SAVE_DIR=/save
       - ESB_LOG_PATH=/logs/enshrouded_server.log
       - ESB_LOG_POS_PATH=/state/tail-pos.json
+      # 0.44.3+: explicit pointer to the config file mount above.
+      - ESB_SERVER_CONFIG_PATH=/config/enshrouded_server.json
       # Forward target — your existing dashboard host.
       - ESB_SERVER_URL=${DASHBOARD_URL}
       - ESB_TOKEN=${ESB_TOKEN}
