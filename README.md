@@ -63,7 +63,8 @@ handles storage, presentation, and admin.
 - **Ubuntu 22.04+** (or any modern Linux with kernel 5.4+).
   Other distros work too; commands below assume Ubuntu.
 - **Docker Engine 24+** with the Compose plugin v2+
-  (`docker compose`, not the old `docker-compose`).
+  (`docker compose`, not the old `docker-compose`). Install
+  recipe below for fresh VPSes.
 - **A reachable dashboard host** running
   [enshrouded-beacon][source] 0.43.0+. HTTPS strongly
   recommended (your dashboard's Cloudflare tunnel /
@@ -77,6 +78,39 @@ handles storage, presentation, and admin.
 - **~5 GB free disk** for the initial SteamCMD download +
   Wine prefix. World saves grow gradually beyond that.
 
+### Installing Docker on a fresh Ubuntu host
+
+Skip this section if `docker compose version` already prints
+something. Otherwise, from the host's terminal:
+
+```bash
+# Official install script — handles all current Ubuntu releases
+# including 25.04 'plucky' which isn't yet in Docker's static
+# apt repo at the time of writing.
+curl -fsSL https://get.docker.com | sudo sh
+
+# Add yourself to the docker group so you don't need sudo every
+# call. `newgrp docker` picks up the new group in THIS shell
+# without forcing a logout.
+sudo usermod -aG docker $USER
+newgrp docker
+
+# Verify
+docker compose version
+```
+
+You should see `Docker Compose version v2.x.x`. If
+`docker compose` returns "command not found" instead, the
+script picked up the legacy `docker.io` apt package instead of
+Docker CE — uninstall it (`sudo apt remove docker.io`) and
+re-run the get.docker.com script.
+
+> **Snap warning.** Ubuntu's `apt search docker` suggests
+> `snap install docker` first. **Don't.** The snap version
+> sandboxes container bind-mounts in ways that break this
+> stack's `./data/` mounts. Use the official Docker CE repo
+> (get.docker.com handles this).
+
 ## Quickstart
 
 ```bash
@@ -84,8 +118,10 @@ git clone https://github.com/spacetoast1738/enshrouded-beacon-server-stack
 cd enshrouded-beacon-server-stack
 
 cp .env.example .env
-$EDITOR .env          # fill in DASHBOARD_URL, ESB_TOKEN,
+nano .env             # fill in DASHBOARD_URL, ESB_TOKEN,
                       # SERVER_NAME, optional SERVER_PASSWORD
+                      # (substitute your editor of choice;
+                      # $EDITOR is unset on minimal installs)
 
 docker compose up -d
 docker compose logs -f beacon          # watch the first /ingest post
