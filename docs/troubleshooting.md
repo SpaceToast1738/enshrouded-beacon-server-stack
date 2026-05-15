@@ -83,15 +83,15 @@ d. **Permission denied on bind mount.** The host's
    restarting (it'll re-download the 8 GB Steam payload on
    every cycle, so stop the stack quickly).
    - Fix: the `sknnr/enshrouded-dedicated-server` image
-     runs SteamCMD as uid **10001** (NOT 1000 — confirmed
+     runs SteamCMD as uid **10000** (NOT 1000 — confirmed
      by `docker run --rm --entrypoint id
      sknnr/enshrouded-dedicated-server:latest`). On first
      `docker compose up`, Docker auto-creates
      `./data/enshrouded` owned by `root:root`, which
-     uid 10001 can't write to.
+     uid 10000 can't write to.
      ```bash
      docker compose down
-     sudo chown -R 10001:10001 ./data/enshrouded \
+     sudo chown -R 10000:10000 ./data/enshrouded \
                                ./data/beacon-state
      docker compose up -d
      ```

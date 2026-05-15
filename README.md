@@ -124,13 +124,13 @@ nano .env             # fill in DASHBOARD_URL, ESB_TOKEN,
                       # $EDITOR is unset on minimal installs)
 
 # Pre-create the bind-mount dirs owned by the dedicated-server
-# image's runtime user (uid 10001 = `steam` inside
+# image's runtime user (uid 10000 = `steam` inside
 # sknnr/enshrouded-dedicated-server). Skipping this step means
 # Docker auto-creates the dirs as root:root and the server
 # fail-loops with "cannot create file ... Permission denied"
 # on every restart — re-downloading ~8 GB each cycle.
 mkdir -p data/enshrouded data/beacon-state
-sudo chown -R 10001:10001 data/enshrouded data/beacon-state
+sudo chown -R 10000:10000 data/enshrouded data/beacon-state
 
 docker compose up -d
 docker compose logs -f beacon          # watch the first /ingest post
