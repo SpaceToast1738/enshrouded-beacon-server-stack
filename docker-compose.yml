@@ -1,0 +1,126 @@
+# Enshrouded dedicated server + beacon companion + watchtower
+# auto-update, all wired up for a single Ubuntu host. Data
+# forwards over HTTPS to a separate dashboard host (your existing
+# enshrouded-beacon deployment) via the `beacon` service.
+#
+# Quickstart:
+#   cp .env.example .env
+#   $EDITOR .env       # fill in DASHBOARD_URL, ESB_TOKEN, SERVER_*
+#   docker compose up -d
+#   docker compose logs -f beacon       # watch first post land
+#
+# Architecture: see README.md.
+
+services:
+
+  # ─────────────────────────────────────────────────────────────
+  # Enshrouded dedicated server
+  # Wine-based community image. The server's Windows binary +
+  # SteamCMD live INSIDE the container; the host doesn't need
+  # Wine installed.
+  #
+  # Pin to a specific image tag rather than `:latest` for the
+  # dedicated server — game patches sometimes break the Wine
+  # layer for a day or two. Tag-pinning gives you a known-good
+  # baseline; bump manually after smoke-testing.
+  #
+  # Community-image docs: https://github.com/jsknnr/enshrouded-server
+  # ─────────────────────────────────────────────────────────────
+  enshrouded-server:
+    image: sknnr/enshrouded-dedicated-server:latest
+    container_name: enshrouded-server
+    restart: unless-stopped
+    ports:
+      # UDP, all three needed for gameplay + Steam server-list
+      # discovery. Open these on the host's firewall too (see
+      # docs/port-forwarding.md).
+      - "${GAME_PORT:-15636}:15636/udp"
+      - "${QUERY_PORT:-15637}:15637/udp"
+      - "15638:15638/udp"
+    volumes:
+      # All persistent server state lives under ./data/enshrouded.
+      # The community image expects /home/steam/enshrouded as its
+      # working tree (savegame/, logs/, enshrouded_server.json,
+      # enshrouded_server_NNN.dat files all land here).
+      - ./data/enshrouded:/home/steam/enshrouded
+    environment:
+      # Operator config — passed to the community image's
+      # entrypoint which writes them into enshrouded_server.json
+      # on first boot. Source values come from .env.
+      - SERVER_NAME=${SERVER_NAME:-Enshrouded Server}
+      - SERVER_PASSWORD=${SERVER_PASSWORD:-}
+      - SERVER_SLOTS=${SERVER_SLOTS:-16}
+      - GAME_PORT=15636
+      - QUERY_PORT=15637
+    # If your kernel allows, give the server a hint about which
+    # CPUs to use. Default = all. Override via .env if you want
+    # to reserve a core for other services.
+    # cpuset: "0-3"
+
+  # ─────────────────────────────────────────────────────────────
+  # Beacon companion
+  # Reads the dedicated server's save dir + logs (READ-ONLY)
+  # plus a small writable volume for its log-tail-position
+  # sidecar. Posts every 30s to your dashboard via HTTPS.
+  #
+  # Image is published by the source monorepo's CI:
+  #   ghcr.io/spacetoast1738/enshrouded-beacon-server
+  # Source: github.com/spacetoast1738/enshrouded-beacon
+  # ─────────────────────────────────────────────────────────────
+  beacon:
+    image: ghcr.io/spacetoast1738/enshrouded-beacon-server:latest
+    container_name: enshrouded-beacon
+    restart: unless-stopped
+    depends_on:
+      - enshrouded-server
+    volumes:
+      # Save dir READ-ONLY — the beacon never modifies the
+      # server's files.
+      - ./data/enshrouded/savegame:/save:ro
+      # Logs dir READ-ONLY for the same reason. The beacon
+      # parses the log but never writes to it.
+      - ./data/enshrouded/logs:/logs:ro
+      # Small writable volume for the beacon's saved-position
+      # sidecar (so docker restart doesn't re-process the whole
+      # log). 0.43.1+ uses the ESB_LOG_POS_PATH env to put this
+      # OUTSIDE the read-only logs mount.
+      - ./data/beacon-state:/state:rw
+    environment:
+      - ESB_SAVE_DIR=/save
+      - ESB_LOG_PATH=/logs/enshrouded_server.log
+      - ESB_LOG_POS_PATH=/state/tail-pos.json
+      # Forward target — your existing dashboard host.
+      - ESB_SERVER_URL=${DASHBOARD_URL}
+      - ESB_TOKEN=${ESB_TOKEN}
+      # Optional: display name shown in /admin → Dedicated
+      # servers. Defaults to SERVER_NAME so the two stay in
+      # sync without operator action.
+      - ESB_DISPLAY_NAME=${SERVER_NAME:-Enshrouded Server}
+      # Optional cadences (defaults shown):
+      # - ESB_POLL_INTERVAL_SEC=30
+      # - ESB_HEARTBEAT_INTERVAL_SEC=300
+
+  # ─────────────────────────────────────────────────────────────
+  # Watchtower
+  # Auto-updates the `enshrouded-server` + `beacon` images by
+  # polling :latest tags every 5 minutes. Comment out this
+  # service if you'd rather pin image tags + upgrade manually.
+  #
+  # `--cleanup` removes old image layers post-pull (saves disk).
+  # `--label-enable` would let you opt specific containers in;
+  # we don't use it here so both auto-update.
+  # ─────────────────────────────────────────────────────────────
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: enshrouded-watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --interval 300 --cleanup
+    environment:
+      - TZ=${TZ:-UTC}
+
+# No top-level networks block — services share Docker's default
+# `bridge` network for the compose project, which is fine for the
+# beacon → dashboard (HTTPS, leaves the host) + game-server →
+# Steam (UDP, leaves the host) traffic.

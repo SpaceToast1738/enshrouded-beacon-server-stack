@@ -1,0 +1,240 @@
+# enshrouded-beacon-server-stack
+
+Docker Compose deployment for an [Enshrouded][game] dedicated
+server **plus** the [enshrouded-beacon][source] companion daemon
+that forwards world stats to your dashboard. One command brings
+both up; Watchtower keeps both auto-updated.
+
+[game]: https://enshrouded.com
+[source]: https://github.com/spacetoast1738/enshrouded-beacon
+
+## What this stack runs
+
+```
+┌─────────────────────── your Ubuntu host ───────────────────────┐
+│                                                                │
+│  ┌────────────────────┐    ┌────────────────────────┐          │
+│  │ enshrouded-server  │    │ enshrouded-beacon      │          │
+│  │ Wine + SteamCMD    │    │ (this monorepo's       │          │
+│  │ community image    │    │  server-companion)     │          │
+│  │                    │    │                        │          │
+│  │ savegame/ + logs/  ├───►│  /save:ro   /logs:ro   │          │
+│  │ + enshrouded_      │    │  /state:rw             │          │
+│  │   server.json      │    │                        │          │
+│  └────────────────────┘    └────────────────────────┘          │
+│         UDP 15636/7/8                │                         │
+│             ▼                        │ HTTPS POST /ingest      │
+│         (Players)                    │                         │
+│                                      │                         │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │ watchtower  (auto-pulls :latest tags every 5 min)        │  │
+│  └──────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────┬───────────────────────┘
+                                         │
+                                         ▼
+                          (your separate dashboard host)
+```
+
+Three containers:
+
+1. **`enshrouded-server`** — community Wine-based image
+   ([`sknnr/enshrouded-dedicated-server`][sknnr]) running
+   the real Windows dedicated-server binary under Wine on
+   Linux. SteamCMD-managed; auto-downloads the game server
+   on first up.
+2. **`beacon`** — our published
+   `ghcr.io/spacetoast1738/enshrouded-beacon-server:latest`.
+   Tails the dedicated server's save files + logs (read-only)
+   and POSTs world stats every 30 seconds to your dashboard
+   via HTTPS.
+3. **`watchtower`** — auto-updates both images by polling
+   `:latest` tags every 5 minutes. Disable if you prefer
+   manual upgrades.
+
+The dashboard itself **is not part of this stack** — it lives
+on a separate host (typically your home server / Unraid box /
+VPS). This stack only forwards data outbound; the dashboard
+handles storage, presentation, and admin.
+
+[sknnr]: https://github.com/jsknnr/enshrouded-server
+
+## Prerequisites
+
+- **Ubuntu 22.04+** (or any modern Linux with kernel 5.4+).
+  Other distros work too; commands below assume Ubuntu.
+- **Docker Engine 24+** with the Compose plugin v2+
+  (`docker compose`, not the old `docker-compose`).
+- **A reachable dashboard host** running
+  [enshrouded-beacon][source] 0.43.0+. HTTPS strongly
+  recommended (your dashboard's Cloudflare tunnel /
+  reverse-proxy handles TLS).
+- **A plaintext ingest token** issued from that dashboard's
+  `/admin → Dedicated servers → Register a new dedicated
+  server`. Shown once at issue time. See
+  [`docs/token-setup.md`](docs/token-setup.md).
+- **UDP ports 15636-15638 open** on the host's firewall.
+  See [`docs/port-forwarding.md`](docs/port-forwarding.md).
+- **~5 GB free disk** for the initial SteamCMD download +
+  Wine prefix. World saves grow gradually beyond that.
+
+## Quickstart
+
+```bash
+git clone https://github.com/spacetoast1738/enshrouded-beacon-server-stack
+cd enshrouded-beacon-server-stack
+
+cp .env.example .env
+$EDITOR .env          # fill in DASHBOARD_URL, ESB_TOKEN,
+                      # SERVER_NAME, optional SERVER_PASSWORD
+
+docker compose up -d
+docker compose logs -f beacon          # watch the first /ingest post
+```
+
+That's it. On first up the `enshrouded-server` container
+downloads the game server via SteamCMD (~3 GB; expect 5-10
+minutes). Once it's ready, the `beacon` container starts posting
+to your dashboard within 30 seconds, and the row appears under
+`/admin → Dedicated servers`.
+
+## Verifying it works
+
+After `docker compose up -d`:
+
+1. **Server boots** — `docker compose logs -f enshrouded-server`
+   should reach a line containing
+   `Loaded game server` / `Game server fully initialised` (the
+   exact phrasing depends on the community image's logging).
+   ~5-10 min on first up while SteamCMD downloads + Wine
+   bootstraps; ~30 seconds on subsequent restarts.
+2. **Beacon registers** — within 30 seconds of `up -d`, the
+   beacon's first POST hits your dashboard. Open `/admin →
+   Dedicated servers` and confirm a new row with the name you
+   set in `SERVER_NAME`, recent `last_seen`, and a populated
+   `world_id`.
+3. **Wire log surfaces it** — open `/admin → Dedicated-server
+   wire log`, pick this server, and you'll see the raw payload
+   under "Show".
+4. **First save tick** — after ~5 minutes of in-game activity
+   (the dedicated server saves every 5 min by default), the
+   `last_save_tick_ts` column starts advancing and per-tag
+   compression times appear inside `current_state.client_state.
+   save_tick_compression_us`.
+5. **Players can join** — connect to the server's external IP
+   (from inside or outside the host's network) with the in-game
+   client. If you can't, see [`docs/port-forwarding.md`](docs/port-forwarding.md).
+
+## Updating
+
+**Watchtower auto-updates** are on by default. Every 5 minutes
+it polls `:latest` for both images and re-pulls anything new.
+You can watch it via:
+
+```bash
+docker compose logs -f watchtower
+```
+
+**Manual updates**:
+
+```bash
+docker compose pull
+docker compose up -d
+docker compose images           # confirm new digests
+```
+
+**Tag-pinning** for production stability: edit
+`docker-compose.yml`, replace `:latest` with a specific tag
+(e.g. `:0.43.1` for the beacon), comment out the `watchtower`
+service, then `docker compose up -d`. Updating becomes a manual
+edit-and-up cycle.
+
+See [`docs/upgrading.md`](docs/upgrading.md) for more detail.
+
+## Backups
+
+The single critical directory is `./data/enshrouded/savegame/`.
+Everything else (Wine prefix, SteamCMD cache, downloaded server
+binary) regenerates on `docker compose up -d`.
+
+A daily tarball cron is the simplest backup:
+
+```bash
+# /etc/cron.daily/enshrouded-backup (chmod +x)
+#!/bin/bash
+cd /opt/enshrouded-beacon-server-stack
+ts=$(date +%Y%m%d-%H%M)
+tar -czf "/var/backups/enshrouded/savegame-${ts}.tar.gz" \
+    data/enshrouded/savegame
+find /var/backups/enshrouded -mtime +14 -delete   # keep 14 days
+```
+
+## Troubleshooting
+
+See [`docs/troubleshooting.md`](docs/troubleshooting.md) for
+symptom-by-symptom diagnosis. Most common:
+
+- **Beacon container restarts in a loop** → token mismatch.
+  Check `ESB_TOKEN` matches what `/admin` shows. Wire log
+  endpoint will return 401s.
+- **Server fails to start, can't find Steam** → SteamCMD
+  download failure or Wine prefix corruption. See the
+  community image's [troubleshooting docs][sknnr-tshoot].
+- **Beacon says "no log found"** → check
+  `data/enshrouded/logs/enshrouded_server.log` exists. If
+  the community image uses a non-standard path, override
+  with `ESB_LOG_PATH` in `.env`.
+- **Players can't connect** → UDP ports not open. See
+  [`docs/port-forwarding.md`](docs/port-forwarding.md).
+
+[sknnr-tshoot]: https://github.com/jsknnr/enshrouded-server#troubleshooting
+
+## What this stack does NOT bundle
+
+- **The dashboard host.** Lives separately. This stack only
+  forwards data outbound. See [`enshrouded-beacon`][source]
+  for the dashboard's own deployment recipe.
+- **Cloudflare tunnel or reverse proxy.** If you want to
+  expose this stack's *server* publicly under a domain name
+  rather than its raw IP, add `cloudflared` or `caddy` to
+  the compose file yourself. Most fellowship setups don't
+  need this — game clients connect via IP.
+- **Save-game backups.** Manual recipe above; not automated
+  by default. Pull in `restic` or `borg` for off-host
+  backups if your home server doesn't already do that.
+- **Multi-server-on-one-host.** Running 2+ Enshrouded
+  dedicated servers on the same Ubuntu host with one beacon
+  each is possible but needs port-disambiguation +
+  service-name uniqueness; not packaged here. Open an issue
+  if you want this.
+
+## How this fits in the multi-repo split
+
+Source code, schemas, RE work, catalogs, tests — all live in
+the source monorepo:
+
+  **https://github.com/spacetoast1738/enshrouded-beacon**
+
+This deploy repo only contains YAML + Markdown + `.env.example`
++ LICENSE. **No Python**. The companion-Beacon image is built
+by the source repo's CI; we just reference it by tag.
+
+Wire-format compatibility note: this stack's `beacon` image
+requires a dashboard running [enshrouded-beacon][source]
+**0.43.0+** (for the wire log surface) and 0.42.0+ for the
+basic dedicated-server ingest path. Newer dashboards are
+backward-compat with older beacons (additive-only fields).
+
+## Credits
+
+- Wine-based dedicated-server image:
+  [`sknnr/enshrouded-dedicated-server`][sknnr] —
+  Keen Software House's Enshrouded server running under
+  Wine on Linux. MIT licensed.
+- Auto-update: [`containrrr/watchtower`][wt] — Apache 2.0.
+- Companion-Beacon: [enshrouded-beacon][source] — MIT.
+
+[wt]: https://github.com/containrrr/watchtower
+
+## License
+
+MIT. See [`LICENSE`](LICENSE).

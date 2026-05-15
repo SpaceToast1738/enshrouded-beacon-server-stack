@@ -1,0 +1,20 @@
+# Operator's actual env values — never commit these.
+.env
+.env.local
+.env.*.local
+
+# Bind-mount targets — runtime state, not source.
+data/enshrouded/
+data/beacon-state/
+
+# But keep the placeholder so `data/` exists on a fresh clone
+# (Docker bind-mounts need the host dir to exist for the
+# initial `docker compose up -d`).
+!data/.gitkeep
+
+# OS / editor noise.
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

@@ -1,0 +1,3 @@
+Bind-mount target. Created on `docker compose up -d`; the
+runtime contents live in this folder but are gitignored
+(`data/enshrouded/` and `data/beacon-state/`).
