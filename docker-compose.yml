@@ -43,15 +43,17 @@ services:
       # working tree (savegame/, logs/, enshrouded_server.json,
       # enshrouded_server_NNN.dat files all land here).
       - ./data/enshrouded:/home/steam/enshrouded
-      # 0.44.4+: persist the Steam install dir to a named volume
-      # so (a) SteamCMD doesn't have to re-download ~8 GB on every
-      # container recreate (writable-layer wipe trap), and (b) the
-      # beacon can read-only mount the same volume to include
-      # selected .dat catalog files in diagnostic bundles. The
-      # first `up -d` after this commit triggers a one-time
-      # SteamCMD download into the empty volume (~5-10 min on a
-      # decent VPS); subsequent recreates use the cached volume.
-      - enshrouded-install:/home/steam/Steam/steamapps/common/EnshroudedServer
+      # 0.44.4 ATTEMPT REVERTED in 0.44.5: tried to bind-mount
+      # `enshrouded-install` named volume at
+      # `/home/steam/Steam/steamapps/common/EnshroudedServer/`.
+      # The sknnr image creates that directory as an EMPTY STUB
+      # — SteamCMD's `force_install_dir` actually targets
+      # `/home/steam/enshrouded/`, which we already bind-mount
+      # from `./data/enshrouded/` (the line above). So the
+      # named volume captured nothing. 0.44.5 drops the
+      # named-volume mount and exposes the install dir to the
+      # beacon via a sibling read-only bind mount on the
+      # beacon's side instead (see beacon service below).
     environment:
       # Operator config — passed to the community image's
       # entrypoint which writes them into enshrouded_server.json
@@ -102,15 +104,18 @@ services:
       # log). 0.43.1+ uses the ESB_LOG_POS_PATH env to put this
       # OUTSIDE the read-only logs mount.
       - ./data/beacon-state:/state:rw
-      # 0.44.4+: shared READ-ONLY view of the dedicated server's
-      # Steam install dir. Lets the beacon include selected .dat
-      # files in diagnostic bundles (allow-list: knowledge /
-      # craftables / items / *catalog* per the source repo's
-      # `client/dedicated_diagnostic_bundle.py::_INSTALL_DAT_ALLOWLIST`).
-      # The beacon NEVER writes to this mount — both for safety
-      # and because game-server install dirs are managed by
-      # SteamCMD on the server container's side.
-      - enshrouded-install:/install:ro
+      # 0.44.5+: READ-ONLY view of the dedicated server's install
+      # dir so the beacon can include the small catalog files
+      # (enshrouded_server.kfc, readme, steam_appid.txt) in
+      # diagnostic bundles per the source repo's
+      # `client/dedicated_diagnostic_bundle.py::_INSTALL_DAT_ALLOWLIST`.
+      # Same host path as `./data/enshrouded:/home/steam/enshrouded`
+      # on the server container, but mounted read-only here.
+      # The big content `.dat` files + `.kfc_resources` are
+      # listed in the bundle's manifest but NOT included in
+      # the tarball (each exceeds the 10 MB bundle cap).
+      # The beacon NEVER writes to this mount.
+      - ./data/enshrouded:/install:ro
     environment:
       - ESB_SAVE_DIR=/save
       - ESB_LOG_PATH=/logs/enshrouded_server.log
@@ -159,9 +164,15 @@ services:
 # beacon → dashboard (HTTPS, leaves the host) + game-server →
 # Steam (UDP, leaves the host) traffic.
 
-# 0.44.4+: named volume for the Enshrouded Steam install dir.
-# Persisted so SteamCMD doesn't re-download on every container
-# recreate, AND shared (read-only) with the beacon container for
-# diagnostic-bundle catalog mining.
-volumes:
-  enshrouded-install:
+# 0.44.5: the `enshrouded-install` named volume from 0.44.4
+# is removed — it was mounted on the wrong path (sknnr image
+# installs to `/home/steam/enshrouded`, NOT
+# `.../Steam/steamapps/common/EnshroudedServer/`). The
+# beacon's `/install:ro` mount now reads from the same host
+# path as the server's main volume.
+#
+# Operators upgrading from 0.44.4: after `docker compose up
+# -d`, you may have an orphan `enshrouded-install` named
+# volume. Clean up with `docker volume rm enshrouded-beacon-
+# server-stack_enshrouded-install` (the project prefix
+# matches the directory name).
