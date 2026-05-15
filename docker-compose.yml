@@ -43,6 +43,15 @@ services:
       # working tree (savegame/, logs/, enshrouded_server.json,
       # enshrouded_server_NNN.dat files all land here).
       - ./data/enshrouded:/home/steam/enshrouded
+      # 0.44.4+: persist the Steam install dir to a named volume
+      # so (a) SteamCMD doesn't have to re-download ~8 GB on every
+      # container recreate (writable-layer wipe trap), and (b) the
+      # beacon can read-only mount the same volume to include
+      # selected .dat catalog files in diagnostic bundles. The
+      # first `up -d` after this commit triggers a one-time
+      # SteamCMD download into the empty volume (~5-10 min on a
+      # decent VPS); subsequent recreates use the cached volume.
+      - enshrouded-install:/home/steam/Steam/steamapps/common/EnshroudedServer
     environment:
       # Operator config — passed to the community image's
       # entrypoint which writes them into enshrouded_server.json
@@ -93,6 +102,15 @@ services:
       # log). 0.43.1+ uses the ESB_LOG_POS_PATH env to put this
       # OUTSIDE the read-only logs mount.
       - ./data/beacon-state:/state:rw
+      # 0.44.4+: shared READ-ONLY view of the dedicated server's
+      # Steam install dir. Lets the beacon include selected .dat
+      # files in diagnostic bundles (allow-list: knowledge /
+      # craftables / items / *catalog* per the source repo's
+      # `client/dedicated_diagnostic_bundle.py::_INSTALL_DAT_ALLOWLIST`).
+      # The beacon NEVER writes to this mount — both for safety
+      # and because game-server install dirs are managed by
+      # SteamCMD on the server container's side.
+      - enshrouded-install:/install:ro
     environment:
       - ESB_SAVE_DIR=/save
       - ESB_LOG_PATH=/logs/enshrouded_server.log
@@ -140,3 +158,10 @@ services:
 # `bridge` network for the compose project, which is fine for the
 # beacon → dashboard (HTTPS, leaves the host) + game-server →
 # Steam (UDP, leaves the host) traffic.
+
+# 0.44.4+: named volume for the Enshrouded Steam install dir.
+# Persisted so SteamCMD doesn't re-download on every container
+# recreate, AND shared (read-only) with the beacon container for
+# diagnostic-bundle catalog mining.
+volumes:
+  enshrouded-install:

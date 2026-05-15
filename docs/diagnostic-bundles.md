@@ -82,6 +82,16 @@ diagnostic-bundle-r<request_id>-<timestamp>.tar.gz
     └── <selected .dat files>  ← per allow-list: knowledge.dat,
                                   craftables.dat, items.dat,
                                   *catalog*.dat
+
+Available since 0.44.4: the deploy compose now shares the
+Steam install dir between the dedicated-server container and
+the beacon (read-only on the beacon side) via the
+`enshrouded-install` named volume. If you're on a deploy
+that predates 0.44.4 OR you stripped the named volume from
+your compose, the install section of the bundle is empty
+and the manifest reports `install_dat_count: 0`. Pure
+diagnostic — the bundle still ships, just without the
+catalog `.dat` files.
 ```
 
 **What's REDACTED from `enshrouded_server.json` before it ships**:
