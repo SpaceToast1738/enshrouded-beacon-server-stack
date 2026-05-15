@@ -72,10 +72,34 @@ c. **Disk full.** Save dir + Wine prefix + SteamCMD cache
 
 d. **Permission denied on bind mount.** The host's
    `./data/enshrouded` directory has wrong ownership.
-   - Fix: the community image runs as `steam` uid (often
-     1000). `sudo chown -R 1000:1000 data/enshrouded` then
-     restart. Confirm the uid in the image's docs if 1000
-     doesn't work.
+   Common signature in the logs:
+   ```
+   INFO: Server config not present, copying example
+   cp: cannot create regular file
+       '/home/steam/enshrouded/enshrouded_server.json':
+       Permission denied
+   ```
+   followed by the container exiting with code 1 +
+   restarting (it'll re-download the 8 GB Steam payload on
+   every cycle, so stop the stack quickly).
+   - Fix: the `sknnr/enshrouded-dedicated-server` image
+     runs SteamCMD as uid **10001** (NOT 1000 — confirmed
+     by `docker run --rm --entrypoint id
+     sknnr/enshrouded-dedicated-server:latest`). On first
+     `docker compose up`, Docker auto-creates
+     `./data/enshrouded` owned by `root:root`, which
+     uid 10001 can't write to.
+     ```bash
+     docker compose down
+     sudo chown -R 10001:10001 ./data/enshrouded \
+                               ./data/beacon-state
+     docker compose up -d
+     ```
+   - The beacon-state dir gets the same treatment so the
+     beacon container can write its tail-pos sidecar.
+   - This is a first-time-setup issue only; once the dirs
+     are owned correctly, subsequent `up -d` cycles work
+     fine.
 
 ## 3. Dashboard shows the server but no save-tick events
 
