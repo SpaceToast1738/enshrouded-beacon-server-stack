@@ -148,9 +148,21 @@ services:
   # `--cleanup` removes old image layers post-pull (saves disk).
   # `--label-enable` would let you opt specific containers in;
   # we don't use it here so both auto-update.
+  #
+  # NOTE on image choice (2026-05-15+): we use `nickfedor/watchtower`
+  # — the maintained fork of `containrrr/watchtower`. The original
+  # `containrrr/watchtower:latest` bundles an old Docker API client
+  # (1.25) that fails against any host running Docker Engine 25+
+  # with:
+  #   client version 1.25 is too old. Minimum supported API
+  #   version is 1.44
+  # The fork ships a current docker client lib + active maintenance.
+  # Operators upgrading from the previous compose file just:
+  #   docker compose pull watchtower
+  #   docker compose up -d watchtower
   # ─────────────────────────────────────────────────────────────
   watchtower:
-    image: containrrr/watchtower:latest
+    image: nickfedor/watchtower:latest
     container_name: enshrouded-watchtower
     restart: unless-stopped
     volumes:
