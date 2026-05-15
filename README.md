@@ -233,6 +233,25 @@ symptom-by-symptom diagnosis. Most common:
 
 [sknnr-tshoot]: https://github.com/jsknnr/enshrouded-server#troubleshooting
 
+## Diagnostic bundles (0.44.0+, opt-in)
+
+The dashboard maintainer can optionally request raw save +
+config + log bundles from your beacon for offline reverse-
+engineering + catalog mining work. **Off by default** —
+set `ESB_ALLOW_DIAGNOSTIC_BUNDLES=1` in `.env` to enable.
+
+When disabled (default), the routine `/ingest` wire payload
+continues exactly as before; the new file-pull workflow is
+gated behind the env var. When enabled, the maintainer's
+"Request bundle" click triggers a one-off upload of a
+gzipped tarball (≤ 10 MB) containing the active save slot,
+redacted config, log tail, and optionally selected game
+catalog `.dat` files.
+
+See [`docs/diagnostic-bundles.md`](docs/diagnostic-bundles.md)
+for the full content list, privacy details, and revocation
+path.
+
 ## What this stack does NOT bundle
 
 - **The dashboard host.** Lives separately. This stack only

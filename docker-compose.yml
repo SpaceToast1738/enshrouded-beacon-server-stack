@@ -96,6 +96,12 @@ services:
       # servers. Defaults to SERVER_NAME so the two stay in
       # sync without operator action.
       - ESB_DISPLAY_NAME=${SERVER_NAME:-Enshrouded Server}
+      # 0.44.0+: opt-in for the dashboard's "Request diagnostic
+      # bundle" flow. Default off (operator must explicitly
+      # set ESB_ALLOW_DIAGNOSTIC_BUNDLES=1 in .env). See
+      # `.env.example` for the full privacy note + what's in
+      # a bundle.
+      - ESB_ALLOW_DIAGNOSTIC_BUNDLES=${ESB_ALLOW_DIAGNOSTIC_BUNDLES:-0}
       # Optional cadences (defaults shown):
       # - ESB_POLL_INTERVAL_SEC=30
       # - ESB_HEARTBEAT_INTERVAL_SEC=300
