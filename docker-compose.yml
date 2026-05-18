@@ -137,7 +137,13 @@ services:
       - ESB_ALLOW_DIAGNOSTIC_BUNDLES=${ESB_ALLOW_DIAGNOSTIC_BUNDLES:-0}
       # Optional cadences (defaults shown):
       # - ESB_POLL_INTERVAL_SEC=30
-      # - ESB_HEARTBEAT_INTERVAL_SEC=300
+      # - ESB_HEARTBEAT_INTERVAL_SEC=60
+      #
+      # Pre-0.59.2 the heartbeat default was 300s (5 min); lowered
+      # to 60s so the dashboard's "beacon Xs ago" timestamp stays
+      # fresh on quiet servers. Override here only if your
+      # bandwidth budget is constrained — 1 post/min is still
+      # negligible (~0.3% of the per-token rate-limit budget).
 
   # ─────────────────────────────────────────────────────────────
   # Watchtower
