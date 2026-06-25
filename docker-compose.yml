@@ -56,13 +56,25 @@ services:
       # beacon's side instead (see beacon service below).
     environment:
       # Operator config — passed to the community image's
-      # entrypoint which writes them into enshrouded_server.json
-      # on first boot. Source values come from .env.
+      # entrypoint which writes them into enshrouded_server.json.
+      # Source values come from .env.
       - SERVER_NAME=${SERVER_NAME:-Enshrouded Server}
       - SERVER_PASSWORD=${SERVER_PASSWORD:-}
       - SERVER_SLOTS=${SERVER_SLOTS:-16}
       - GAME_PORT=15636
       - QUERY_PORT=15637
+      # ── REQUIRED for "edit settings from the website" (0.90.0+) ──
+      # By DEFAULT the sknnr image REGENERATES enshrouded_server.json
+      # from the env vars above on EVERY container start. That would
+      # silently CLOBBER any gameSettings the dashboard wrote the
+      # moment the server restarts — defeating the feature.
+      # `EXTERNAL_CONFIG=1` tells the image to PRESERVE the existing
+      # enshrouded_server.json instead of regenerating it, so
+      # dashboard edits survive a restart. Leave at 0 (default) if
+      # you are NOT using the settings-editing feature.
+      # See docs/server-settings.md for the full setup (this var +
+      # a config-file chown + the beacon vars below).
+      - EXTERNAL_CONFIG=${EXTERNAL_CONFIG:-0}
     # If your kernel allows, give the server a hint about which
     # CPUs to use. Default = all. Override via .env if you want
     # to reserve a core for other services.
@@ -98,6 +110,14 @@ services:
       # `./data/enshrouded/`. With this file bind-mount plus
       # ESB_SERVER_CONFIG_PATH below, the beacon's routine
       # telemetry + diagnostic bundles both pick it up.
+      #
+      # READ-ONLY by default — the beacon never modifies the config.
+      # To ENABLE "edit settings from the website" (0.90.0+): change
+      # the `:ro` suffix below to `:rw`, set EXTERNAL_CONFIG=1 on the
+      # server above, make the file beacon-writable
+      # (`sudo chown 10100 data/enshrouded/enshrouded_server.json`),
+      # and set ESB_ALLOW_SETTINGS_WRITE=1 below. Full walkthrough in
+      # docs/server-settings.md.
       - ./data/enshrouded/enshrouded_server.json:/config/enshrouded_server.json:ro
       # Small writable volume for the beacon's saved-position
       # sidecar (so docker restart doesn't re-process the whole
@@ -135,9 +155,67 @@ services:
       # `.env.example` for the full privacy note + what's in
       # a bundle.
       - ESB_ALLOW_DIAGNOSTIC_BUNDLES=${ESB_ALLOW_DIAGNOSTIC_BUNDLES:-0}
+      # ── Edit settings from the website (0.90.0+) ──────────────
+      # All OFF by default — the beacon stays read-only telemetry
+      # unless you opt in. See docs/server-settings.md for the full
+      # setup (these vars + EXTERNAL_CONFIG=1 + a config chown + the
+      # `:rw` mount flip above).
+      #
+      # Let the dashboard WRITE edited gameSettings into
+      # enshrouded_server.json. Requires the `:rw` mount flip + a
+      # config-file chown to uid 10100. With this at 0, the dashboard
+      # edit UI reports "refused".
+      - ESB_ALLOW_SETTINGS_WRITE=${ESB_ALLOW_SETTINGS_WRITE:-0}
+      # Let the dashboard RESTART the dedicated server so a config
+      # write takes effect (Enshrouded only reads its config at
+      # startup). Requires the docker-proxy service below (uncomment
+      # it). With this at 0, a write lands and the dashboard reports
+      # "restart pending" — you restart the server yourself.
+      - ESB_ALLOW_SERVER_RESTART=${ESB_ALLOW_SERVER_RESTART:-0}
+      # Container name of the dedicated server, as docker sees it
+      # (matches `container_name: enshrouded-server` above).
+      - ESB_SERVER_CONTAINER_NAME=${ESB_SERVER_CONTAINER_NAME:-enshrouded-server}
+      # Hardened docker-socket-proxy endpoint (the beacon talks ONLY
+      # to this, never the raw docker socket). Matches the service
+      # name below.
+      - ESB_DOCKER_PROXY_URL=${ESB_DOCKER_PROXY_URL:-http://docker-proxy:2375}
       # Optional cadences (defaults shown):
       # - ESB_POLL_INTERVAL_SEC=30
-      # - ESB_HEARTBEAT_INTERVAL_SEC=300
+      # - ESB_HEARTBEAT_INTERVAL_SEC=60
+      #
+      # Pre-0.59.2 the heartbeat default was 300s (5 min); lowered
+      # to 60s so the dashboard's "beacon Xs ago" timestamp stays
+      # fresh on quiet servers. Override here only if your
+      # bandwidth budget is constrained — 1 post/min is still
+      # negligible (~0.3% of the per-token rate-limit budget).
+
+  # ─────────────────────────────────────────────────────────────
+  # Docker socket proxy  (OPT-IN — only for "restart from website")
+  # Disabled by default. Uncomment this whole service ONLY if you
+  # set ESB_ALLOW_SERVER_RESTART=1 above, so the dashboard can
+  # restart the dedicated server after a settings write.
+  #
+  # It exposes a HARDENED, read-mostly slice of the docker API —
+  # CONTAINERS=1 + POST=1 only, everything else denied — so the
+  # beacon can issue `POST /containers/enshrouded-server/restart`
+  # but NOT exec/build/pull/inspect-secrets. Same pattern Watchtower
+  # already uses, but scoped. The beacon never touches the raw
+  # /var/run/docker.sock; only this proxy does (read-only mount).
+  #
+  # Residual: the proxy can't scope POST to a SINGLE container, so
+  # with the gate on, the beacon could restart (only restart) any
+  # container the proxy sees. Mitigations: the default-off gate +
+  # the operation allow-list. See docs/server-settings.md.
+  # ─────────────────────────────────────────────────────────────
+  # docker-proxy:
+  #   image: tecnativa/docker-socket-proxy:latest
+  #   container_name: enshrouded-docker-proxy
+  #   restart: unless-stopped
+  #   environment:
+  #     - CONTAINERS=1
+  #     - POST=1
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
 
   # ─────────────────────────────────────────────────────────────
   # Watchtower

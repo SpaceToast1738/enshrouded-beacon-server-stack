@@ -252,6 +252,29 @@ See [`docs/diagnostic-bundles.md`](docs/diagnostic-bundles.md)
 for the full content list, privacy details, and revocation
 path.
 
+## Edit server settings from the website (0.90.0+, opt-in)
+
+From dashboard + beacon **0.90.0**, admins can optionally edit
+this server's `gameSettings` (difficulty multipliers, enemy/XP
+factors, day-night cycle, etc.) **and restart the server** to
+apply them — from the web UI, no SSH. **Off by default.**
+
+⚠ It's opt-in at several layers, two of which are easy to miss
+and cause **silent failure** if skipped:
+
+- **`EXTERNAL_CONFIG=1`** on the dedicated-server service — the
+  community image regenerates `enshrouded_server.json` on every
+  boot by default, which would wipe dashboard edits on restart.
+- A **`chown` of the config file** to the beacon's uid (10100)
+  plus flipping its bind-mount to `:rw`.
+- **`ESB_ALLOW_SETTINGS_WRITE=1`** (and, for restart-from-website,
+  the opt-in `docker-proxy` service + `ESB_ALLOW_SERVER_RESTART=1`).
+
+The save dir stays read-only throughout — only the single config
+*file* becomes writable, and only when you enable all of the
+above. Full walkthrough, security model, and troubleshooting:
+[`docs/server-settings.md`](docs/server-settings.md).
+
 ## What this stack does NOT bundle
 
 - **The dashboard host.** Lives separately. This stack only
@@ -285,8 +308,11 @@ by the source repo's CI; we just reference it by tag.
 Wire-format compatibility note: this stack's `beacon` image
 requires a dashboard running [enshrouded-beacon][source]
 **0.43.0+** (for the wire log surface) and 0.42.0+ for the
-basic dedicated-server ingest path. Newer dashboards are
-backward-compat with older beacons (additive-only fields).
+basic dedicated-server ingest path. The optional
+[server-settings editing](docs/server-settings.md) +
+host-utilisation features require dashboard + beacon **0.90.0+**.
+Newer dashboards are backward-compat with older beacons
+(additive-only fields).
 
 ## Credits
 
