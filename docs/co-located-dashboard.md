@@ -83,13 +83,21 @@ server. (Ask and we'll wire it in.)
 
 ```ini
 DASHBOARD_URL=http://dashboard:8000          # companion → local dashboard
-DASHBOARD_PUBLIC_URL=https://beacon.spencer-net.com   # KEEP your hostname
-CLOUDFLARED_TOKEN=                           # filled in Phase 4
+PUBLIC_BASE_URL=https://beacon.spencer-net.com   # KEEP your hostname
+CLOUDFLARED_TOKEN=                           # filled in Phase 4 (skip if you
+                                             #   front it with an existing proxy)
 RESEND_API_KEY=...                           # copy from old dashboard
 RESEND_FROM=Enshrouded Beacon <noreply@spencer-net.com>
 GITHUB_TOKEN=                                # optional
 VITALS_TICKET_SECRET=<openssl rand -hex 32>  # if using direct vitals
 ```
+
+> **Already running Caddy / Traefik / nginx on this host?** (e.g. for another
+> service.) Skip the `cloudflared` service entirely — add the `dashboard` to
+> your proxy's docker network and a vhost pointing at
+> `enshrouded-dashboard:8000`, then in Phase 4 just add the DNS A record →
+> your VPS IP and let your proxy issue the cert. This is how the reference
+> deployment is actually run (Caddy + an existing `*.spencer-net.com` setup).
 
 > Leave `CLOUDFLARED_TOKEN` blank for now — you'll get it in Phase 4.
 > Don't start the `dashboard` profile until the DB is in place (Phase 3).

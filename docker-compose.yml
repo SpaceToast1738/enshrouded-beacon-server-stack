@@ -202,8 +202,14 @@ services:
   # When enabled, set in .env:
   #   DASHBOARD_URL=http://dashboard:8000   (companion posts here over
   #                                          the compose network)
-  #   DASHBOARD_PUBLIC_URL=https://your.domain   (public hostname)
+  #   PUBLIC_BASE_URL=https://your.domain   (public hostname)
   #   plus RESEND_* / VITALS_TICKET_SECRET / CLOUDFLARED_TOKEN (.env).
+  #
+  # ALREADY RUNNING A REVERSE PROXY (Caddy / Traefik / nginx)? Skip the
+  # bundled cloudflared below — instead join the dashboard to your
+  # proxy's docker network and point it at enshrouded-dashboard:8000
+  # (no host port needed). That's the cleaner path if this host already
+  # terminates TLS for other sites. See docs/co-located-dashboard.md.
   #
   # This is the DASHBOARD image (ghcr.io/.../enshrouded-beacon),
   # distinct from the `beacon` companion image above. Full migration
@@ -237,7 +243,7 @@ services:
       # Public URL friends use (magic-link sign-in emails embed it).
       # Keep this the SAME hostname you used at the home box so the
       # move is invisible to friends.
-      - PUBLIC_BASE_URL=${DASHBOARD_PUBLIC_URL}
+      - PUBLIC_BASE_URL=${PUBLIC_BASE_URL}
       # Magic-link auth email (Resend). Needed for sign-in.
       - RESEND_API_KEY=${RESEND_API_KEY:-}
       - RESEND_FROM=${RESEND_FROM:-}
