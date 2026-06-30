@@ -190,6 +190,98 @@ services:
       # negligible (~0.3% of the per-token rate-limit budget).
 
   # ─────────────────────────────────────────────────────────────
+  # Dashboard web hub  (OPT-IN — co-located all-in-one deploy)
+  # Disabled by default — this stack normally forwards to a SEPARATE
+  # dashboard host. Enable ONLY if you want to run the dashboard ON
+  # THIS host, next to the game server + companion, so distant
+  # players hit this box (a datacenter VPS) instead of your home
+  # uplink — and the companion→dashboard hop collapses to localhost
+  # (no Cloudflare round-trip on /ingest OR /ingest/vitals).
+  #
+  # Start with:  docker compose --profile dashboard up -d
+  # When enabled, set in .env:
+  #   DASHBOARD_URL=http://dashboard:8000   (companion posts here over
+  #                                          the compose network)
+  #   DASHBOARD_PUBLIC_URL=https://your.domain   (public hostname)
+  #   plus RESEND_* / VITALS_TICKET_SECRET / CLOUDFLARED_TOKEN (.env).
+  #
+  # This is the DASHBOARD image (ghcr.io/.../enshrouded-beacon),
+  # distinct from the `beacon` companion image above. Full migration
+  # walkthrough (incl. moving your existing SQLite DB here):
+  #   docs/co-located-dashboard.md
+  # ─────────────────────────────────────────────────────────────
+  dashboard:
+    image: ghcr.io/spacetoast1738/enshrouded-beacon:latest
+    container_name: enshrouded-dashboard
+    restart: unless-stopped
+    profiles: ["dashboard"]
+    # Loopback-only publish for local smoke-tests
+    # (`curl localhost:8000/healthz`). cloudflared reaches the
+    # dashboard by service name over the compose network, so NOTHING
+    # is exposed on the host's public interface here. Don't open 8000
+    # in the host firewall.
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      # SQLite system-of-record DB + logs. Migrate your existing
+      # dashboard.db into ./data/dashboard/ first — see
+      # docs/co-located-dashboard.md (stop-writer + checkpoint +
+      # integrity_check). The container's `app` user (uid 1000) owns
+      # /data; the entrypoint chowns it on boot.
+      - ./data/dashboard:/data
+    environment:
+      - DATABASE_PATH=/data/dashboard.db
+      # Behind the Cloudflare tunnel TLS terminates at the edge →
+      # keep browser cookies Secure.
+      - COOKIE_SECURE=1
+      # Public URL friends use (magic-link sign-in emails embed it).
+      # Keep this the SAME hostname you used at the home box so the
+      # move is invisible to friends.
+      - PUBLIC_BASE_URL=${DASHBOARD_PUBLIC_URL}
+      # Magic-link auth email (Resend). Needed for sign-in.
+      - RESEND_API_KEY=${RESEND_API_KEY:-}
+      - RESEND_FROM=${RESEND_FROM:-}
+      # Optional GitHub token for the /releases proxy (player-Beacon
+      # auto-update). Empty = that endpoint returns 503; harmless.
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      # MUST equal the companion's ESB_VITALS_TICKET_SECRET if you use
+      # the 0.106.0 direct-vitals overlay path. Empty disables it
+      # (overlays fall back to hub-SSE). See docs/co-located-dashboard.md.
+      - VITALS_TICKET_SECRET=${VITALS_TICKET_SECRET:-}
+    # The image runs unprivileged with a read-only root + tmpfs for
+    # scratch; /data is the only writable path. Matches the source
+    # repo's hardened compose.
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/app/.cache
+
+  # ─────────────────────────────────────────────────────────────
+  # Cloudflare Tunnel  (OPT-IN — pairs with the dashboard above)
+  # Disabled by default. Exposes the co-located dashboard at your
+  # public hostname via an OUTBOUND tunnel — cloudflared dials
+  # Cloudflare's edge, so NO inbound port is opened on the VPS
+  # firewall (same security posture as the home deployment). It
+  # reaches the dashboard by service name (http://dashboard:8000)
+  # over the compose network.
+  #
+  # Setup: create a tunnel in Cloudflare Zero Trust → Networks →
+  # Tunnels, add a Public Hostname routing your domain →
+  # http://dashboard:8000, copy the tunnel TOKEN into
+  # CLOUDFLARED_TOKEN in .env. Walkthrough: docs/co-located-dashboard.md.
+  # ─────────────────────────────────────────────────────────────
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: enshrouded-cloudflared
+    restart: unless-stopped
+    profiles: ["dashboard"]
+    depends_on:
+      - dashboard
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARED_TOKEN}
+
+  # ─────────────────────────────────────────────────────────────
   # Docker socket proxy  (OPT-IN — only for "restart from website")
   # Disabled by default. Uncomment this whole service ONLY if you
   # set ESB_ALLOW_SERVER_RESTART=1 above, so the dashboard can
