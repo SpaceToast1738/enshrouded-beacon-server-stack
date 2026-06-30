@@ -252,16 +252,91 @@ See [`docs/diagnostic-bundles.md`](docs/diagnostic-bundles.md)
 for the full content list, privacy details, and revocation
 path.
 
+## Edit server settings from the website (0.90.0+, opt-in)
+
+From dashboard + beacon **0.90.0**, admins can optionally edit
+this server's `gameSettings` (difficulty multipliers, enemy/XP
+factors, day-night cycle, etc.) **and restart the server** to
+apply them — from the web UI, no SSH. **Off by default.**
+
+⚠ It's opt-in at several layers, two of which are easy to miss
+and cause **silent failure** if skipped:
+
+- **`EXTERNAL_CONFIG=1`** on the dedicated-server service — the
+  community image regenerates `enshrouded_server.json` on every
+  boot by default, which would wipe dashboard edits on restart.
+- A **`chown` of the config file** to the beacon's uid (10100)
+  plus flipping its bind-mount to `:rw`.
+- **`ESB_ALLOW_SETTINGS_WRITE=1`** (and, for restart-from-website,
+  the opt-in `docker-proxy` service + `ESB_ALLOW_SERVER_RESTART=1`).
+
+The save dir stays read-only throughout — only the single config
+*file* becomes writable, and only when you enable all of the
+above. Full walkthrough, security model, and troubleshooting:
+[`docs/server-settings.md`](docs/server-settings.md).
+
+## Co-located all-in-one dashboard (opt-in)
+
+By default this stack forwards to a **separate** dashboard host. But
+you can also run the dashboard **on this same host**, next to the game
+server + companion — the `dashboard` + `cloudflared` services are
+included but **off by default** behind a Compose profile.
+
+Use this when the dashboard was hosted somewhere with a poor upload
+pipe (a home server / Unraid box) and you want distant players to reach
+a **datacenter VPS** directly instead. Two things improve:
+
+- **Players hit the VPS, not your home uplink** — page loads + live
+  SSE terminate in the datacenter.
+- **The companion→dashboard hop becomes localhost** — no Cloudflare
+  round-trip on either the slow `/ingest` lane or the fast
+  `/ingest/vitals` lane. (Today the companion ships its telemetry out
+  to the dashboard host and back, even when they're the same box.)
+
+```
+┌─────────────── your VPS (one host) ────────────────┐
+│  enshrouded-server ──UDP──► players                │
+│  beacon ── http://dashboard:8000 (localhost) ──┐   │
+│  dashboard :8000  ◄─────────────────────────────┘  │
+│   └─ SQLite /data/dashboard.db                     │
+│  cloudflared ──outbound tunnel──► Cloudflare edge   │
+└──────────────────────────▲─────────────────────────┘
+                           │  your.domain (same hostname as before)
+                     Friends (browse + sign in + SSE)
+```
+
+The public hostname **doesn't change**, so the move is invisible to
+friends. Enable with:
+
+```bash
+# after migrating your DB + filling in the co-located .env vars:
+docker compose --profile dashboard up -d
+```
+
+The cloudflared tunnel is **outbound** (it dials Cloudflare's edge), so
+**no inbound port is opened on the VPS** — same security posture as a
+home deployment.
+
+**This is a system-of-record move** (your SQLite DB carries all player
+/character history). Don't wing it — the full walkthrough covers
+migrating the DB with zero data loss, the Cloudflare tunnel setup, the
+companion repoint, backups (VPS → home via rsync), and a <5-minute
+rollback:
+
+→ [`docs/co-located-dashboard.md`](docs/co-located-dashboard.md)
+
 ## What this stack does NOT bundle
 
-- **The dashboard host.** Lives separately. This stack only
-  forwards data outbound. See [`enshrouded-beacon`][source]
-  for the dashboard's own deployment recipe.
-- **Cloudflare tunnel or reverse proxy.** If you want to
-  expose this stack's *server* publicly under a domain name
-  rather than its raw IP, add `cloudflared` or `caddy` to
-  the compose file yourself. Most fellowship setups don't
-  need this — game clients connect via IP.
+- **The dashboard host** — *by default*. This stack forwards data
+  outbound to a separate dashboard. If you'd rather run the dashboard
+  on this host too, see [Co-located all-in-one dashboard](#co-located-all-in-one-dashboard-opt-in)
+  above (opt-in profile). See [`enshrouded-beacon`][source] for the
+  dashboard's standalone deployment recipe.
+- **Cloudflare tunnel or reverse proxy** — *for the game server*. The
+  opt-in `cloudflared` service above is for the **co-located dashboard
+  only**. If you want to expose this stack's *game server* publicly
+  under a domain name rather than its raw IP, add your own proxy — most
+  fellowship setups don't need this (game clients connect via IP).
 - **Save-game backups.** Manual recipe above; not automated
   by default. Pull in `restic` or `borg` for off-host
   backups if your home server doesn't already do that.
@@ -285,8 +360,11 @@ by the source repo's CI; we just reference it by tag.
 Wire-format compatibility note: this stack's `beacon` image
 requires a dashboard running [enshrouded-beacon][source]
 **0.43.0+** (for the wire log surface) and 0.42.0+ for the
-basic dedicated-server ingest path. Newer dashboards are
-backward-compat with older beacons (additive-only fields).
+basic dedicated-server ingest path. The optional
+[server-settings editing](docs/server-settings.md) +
+host-utilisation features require dashboard + beacon **0.90.0+**.
+Newer dashboards are backward-compat with older beacons
+(additive-only fields).
 
 ## Credits
 
