@@ -341,6 +341,19 @@ rsync -az -e 'ssh -i ~/.ssh/enshrouded_re_ed25519' \
   /mnt/user/backups/enshrouded-beacon/
 ```
 
+> **⚠ Mind the timezones when scheduling.** The snapshot cron runs in the VPS's
+> timezone and the pull cron runs in the home box's — if those differ (e.g. VPS
+> on UTC, home on BST/GMT) a "1-hour gap" in wall-clock minutes can be **zero**
+> in absolute time, so the pull races a half-written snapshot. Put the snapshot
+> at an early *UTC* hour (e.g. `0 2 * * *`) so the home pull is always hours
+> later regardless of season.
+>
+> **Harden the pull key.** Don't authorize the home box's key for full shell on
+> the VPS. Restrict it to rsync-pull-only in the VPS's `~/.ssh/authorized_keys`:
+> `restrict,command="rrsync -ro /path/to/dashboard-backups" ssh-ed25519 AAAA... home-backup`
+> (`rrsync` ships with rsync 3.2.4+). Then the home client points at the rrsync
+> root — source becomes `ubuntu@<vps>:` (empty path), not the full dir path.
+
 Keep the Phase 2 pre-migration DB copy as your day-0 cold backup.
 
 ---
